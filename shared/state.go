@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/faiface/pixel"
 	"github.com/ilackarms/pkg/errors"
 )
 
@@ -22,7 +23,6 @@ func NewEmptyWorld() *World {
 	}
 }
 
-// WARNING: do not modify world in callback. it is intended for reads only
 func (w *World) ApplyUpdate(update *Update) (err error) {
 	if update.AddPlayer != nil {
 		return w.addPlayer(update.AddPlayer)
@@ -40,6 +40,35 @@ func (w *World) ApplyUpdate(update *Update) (err error) {
 		return w.applyRemovePlayer(update.RemovePlayer)
 	}
 	return errors.New("empty update given? wtf", nil)
+}
+
+// process game-world self update
+func (w *World) Step(dt float64) (err error) {
+	w.playersLock.Lock()
+	defer w.playersLock.Unlock()
+	for id, player := range w.players {
+		// update player positions based on velocity
+		if player.Direction != pixel.ZV {
+			newPos := player.Position.Add(player.Direction.Scaled(player.Speed * dt))
+			//check collisions
+			var collisionFound bool
+			for otherID, otherPlayer := range w.players {
+				// player cant collide with self
+				if id == otherID {
+					continue
+				}
+				if newPos == otherPlayer.Position {
+					collisionFound = true
+					break
+				}
+			}
+			if collisionFound {
+				continue
+			}
+			player.Position = newPos
+		}
+	}
+	return nil
 }
 
 // GetPlayer returns a referece to player
@@ -61,6 +90,7 @@ func (w *World) addPlayer(added *AddPlayer) error {
 			return errors.New("player "+added.ID+" already active!", nil)
 		}
 		player.Active = true
+		return nil
 	}
 	w.setPlayer(added.ID, &Player{
 		ID:           added.ID,

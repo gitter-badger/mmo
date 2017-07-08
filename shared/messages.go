@@ -105,7 +105,6 @@ func (u Update) String() string {
 	}
 
 	return "empty update"
-
 }
 
 func (r Request) String() string {

@@ -105,6 +105,7 @@ func (mgr *updateManager) syncPlayerState(id string) error {
 	}
 	return nil
 }
+
 /*
 	Event handlers
 */

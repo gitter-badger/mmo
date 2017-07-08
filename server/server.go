@@ -176,23 +176,21 @@ func (mgr *updateManager) startClientLoop(id string) {
 
 func (s *mmoServer) gameLoop(errc chan error) {
 	last := time.Now()
-	dt := 0.0
 	for {
-		dt += time.Since(last).Seconds()
-		last = time.Now()
+		dt := time.Since(last).Seconds()
 		if dt < tickTime {
 			sleepTime := time.Duration(1000000*(tickTime-dt)) * time.Microsecond
 			time.Sleep(sleepTime)
 		}
-		dt = 0.0
-		if err := s.tick(); err != nil {
+		if err := s.tick(dt); err != nil {
 			log.Printf("ERROR IN TICK: %v", err)
 			errc <- err
 		}
+		last = time.Now()
 	}
 }
 
-func (s *mmoServer) tick() error {
+func (s *mmoServer) tick(dt float64) error {
 	//copy clients to an array so we dont have to RLock the whole function
 	clients := []*client{}
 	s.mgr.connectedPlayersLock.RLock()
@@ -214,7 +212,8 @@ func (s *mmoServer) tick() error {
 			}
 		}
 	}
-	return nil
+	// step world
+	return s.mgr.world.Step(dt)
 }
 
 func (s *mmoServer) handleRequest(player *shared.Player, req *shared.Request) error {
