@@ -7,8 +7,6 @@ import (
 	"github.com/ilackarms/pkg/errors"
 )
 
-type UpdateCallback func(world *World)
-
 type World struct {
 	players     map[string]*Player
 	playersLock sync.RWMutex
@@ -21,10 +19,7 @@ func NewEmptyWorld() *World {
 }
 
 // WARNING: do not modify world in callback. it is intended for reads only
-func (w *World) ApplyUpdate(update *Update, callback UpdateCallback) (err error) {
-	if callback != nil && err == nil {
-		defer callback(w)
-	}
+func (w *World) ApplyUpdate(update *Update) (err error) {
 	if update.AddPlayer != nil {
 		return w.addPlayer(update.AddPlayer)
 	}
@@ -43,13 +38,16 @@ func (w *World) ApplyUpdate(update *Update, callback UpdateCallback) (err error)
 	return errors.New("empty update given? wtf", nil)
 }
 
-// CopyPlayer returns a deep copy of a player
-func (w *World) CopyPlayer(id string) (*Player, bool) {
+// GetPlayer returns a referece to player
+// PLEASE do not use this reference to modify player directly!
+// Objects returned by GetPlayer should be read-only
+// Looking forward to go supporting immutable references
+func (w *World) GetPlayer(id string) (*Player, bool) {
 	player, err := w.getPlayer(id)
 	if err != nil {
 		return nil, false
 	}
-	return &Player{player.ID, player.Position, player.SpeechBuffer, player.Active}, true
+	return player, true
 }
 
 // if player doesnt exist, add. if player is inactive, activate. if player is active, error

@@ -19,12 +19,12 @@ import (
 )
 
 type mmoServer struct {
-	state *serverState
+	state *updateManager
 }
 
 func newMMOServer() *mmoServer {
 	return &mmoServer{
-		state: newEmptyServerState(),
+		state: newUpdateManager(),
 	}
 }
 
@@ -148,7 +148,7 @@ func (s *mmoServer) handleConnection(conn net.Conn) error {
 
 	// broadcast to clients that a new player has joined
 	s.queueFunc(func() error {
-		player, ok := s.state.world.CopyPlayer(id)
+		player, ok := s.state.world.GetPlayer(id)
 		if !ok{
 			return errors.New("player "+id+" no longer found", err)
 		}
@@ -239,89 +239,6 @@ func (s *mmoServer) tick() error {
 		processed++
 	}
 	s.updates = s.updates[processed:]
-	return nil
-}
-
-func (s *mmoServer) broadcastAddPlayer(id string, pos pixel.Vec) error {
-	playerMoved := &shared.Message{
-		Update: &shared.Update{AddPlayer: &shared.AddPlayer{
-			ID:       id,
-			Position: pos,
-		}},
-	}
-	return s.broadcast(playerMoved)
-}
-func (s *mmoServer) broadcastPlayerMoved(id string, newPos pixel.Vec, requestTime time.Time) error {
-	playerMoved := &shared.Message{
-		Update: &shared.Update{PlayerMoved: &shared.PlayerMoved{
-			ID:          id,
-			ToPosition:  newPos,
-			RequestTime: requestTime,
-		}},
-	}
-	return s.broadcast(playerMoved)
-}
-
-func (s *mmoServer) broadcastPlayerSpoke(id string, txt string) error {
-	playerSpoke := &shared.Message{
-		Update: &shared.Update{PlayerSpoke: &shared.PlayerSpoke{
-			ID:   id,
-			Text: txt,
-		}},
-	}
-	return s.broadcast(playerSpoke)
-}
-
-func (s *mmoServer) sendWorldState(id string) error {
-	s.playersLock.RLock()
-	ps := make([]*shared.Player, len(s.players))
-	i := 0
-	for _, player := range s.players {
-		ps[i] = &shared.Player{
-			ID:       player.ID,
-			Position: player.Position,
-		}
-		i++
-	}
-	player, ok := s.players[id]
-	s.playersLock.RUnlock()
-	if !ok {
-		return errors.New("player "+id+" not found", nil)
-	}
-	return shared.SendMessage(&shared.Message{
-		Update: &shared.Update{WorldState: &shared.WorldState{Players: ps}}}, player.Conn)
-}
-
-func (s *mmoServer) sendError(conn net.Conn, err error) error {
-	if err == nil {
-		return errors.New("cannot send nil error!", nil)
-	}
-	return shared.SendMessage(&shared.Message{
-		Error: &shared.Error{Message: err.Error()}}, conn)
-}
-
-func (s *mmoServer) broadcastPlayerDisconnected(id string) error {
-	playerDisconnected := &shared.Message{
-		Update: &shared.Update{RemovePlayer: &shared.RemovePlayer{ID: id}},
-	}
-	return s.broadcast(playerDisconnected)
-}
-
-func (s *mmoServer) broadcast(msg *shared.Message) error {
-	log.Println(msg)
-	data, err := shared.Encode(msg)
-	if err != nil {
-		return err
-	}
-	s.playersLock.RLock()
-	defer s.playersLock.RUnlock()
-	for _, player := range s.players {
-		log.Printf("sending update: %s to %s", msg, player.Player.ID)
-		player.Conn.SetDeadline(time.Now().Add(time.Second))
-		if err := shared.SendRaw(data, player.Conn); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 

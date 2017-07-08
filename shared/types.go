@@ -3,10 +3,7 @@ package shared
 import (
 	"fmt"
 	"image/color"
-	"net"
 	"strings"
-	"sync"
-
 	"time"
 
 	"github.com/faiface/pixel"
@@ -16,14 +13,14 @@ const fatalErrSig = "**FATAL_ERR**"
 
 type ClientPlayer struct {
 	Player *Player
-	Color color.Color
+	Color  color.Color
 }
 
 type Player struct {
 	// global unique UUID
-	ID           string
+	ID string
 	// cartesian coordinates
-	Position     pixel.Vec
+	Position pixel.Vec
 	// player speech; max buffer size 4
 	SpeechBuffer []SpeechMesage
 	// if set to false, player is treaded as though it has been deleted
