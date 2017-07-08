@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/faiface/pixel"
 	"github.com/ilackarms/pkg/errors"
 	"github.com/mmogo/mmo/shared"
 	"github.com/soheilhy/cmux"
@@ -19,12 +18,12 @@ import (
 )
 
 type mmoServer struct {
-	state *updateManager
+	mgr *updateManager
 }
 
 func newMMOServer() *mmoServer {
 	return &mmoServer{
-		state: newUpdateManager(),
+		mgr: newUpdateManager(),
 	}
 }
 
@@ -138,58 +137,39 @@ func (s *mmoServer) handleConnection(conn net.Conn) error {
 	}
 
 	// get ID
+	//TODO: instead connectrequest should contain a user/pass combo
+	//we should look up the player's existing ID
+	// (or generate a new db entry with ID if doesnt exist)
 	id := msg.Request.ConnectRequest.ID
 
-	// add player
-	if err := s.state.playerConnected(id, conn); err != nil {
-		log.Printf("WARN: multiple login attempted from %s at %s\n", id, conn.RemoteAddr())
-		return s.sendError(conn, shared.FatalErr(err))
+	// set up player connection
+	if err := s.mgr.playerConnected(id, conn); err != nil {
+		log.Printf("WARN: failed to accept connection from player %s at %s\n", id, conn.RemoteAddr())
+		return s.mgr.sendError(conn, shared.FatalErr(err))
 	}
 
-	// broadcast to clients that a new player has joined
-	s.queueFunc(func() error {
-		player, ok := s.state.world.GetPlayer(id)
-		if !ok{
-			return errors.New("player "+id+" no longer found", err)
-		}
-		return s.broadcastAddPlayer(id, player.Position)
-	})
-
-	// send world state to player
-	s.queueFunc(func() error {
-		return s.sendWorldState(id)
-	})
-
-	// handle player in goroutine
-	go s.handlePlayer(id)
+	// start serving requests from the player
+	go s.mgr.startClientLoop(id)
 
 	log.Printf("new connected player %s from %s", id, conn.RemoteAddr().String())
 	return nil
 }
 
-func (s *mmoServer) handlePlayer(id string) {
-	for s.players[id] != nil {
-		player := s.players[id]
-		for len(player.RequestQueue) >= messagePerTickLimit {
-			time.Sleep(time.Millisecond)
-		}
-		conn := player.Conn
-		msg, err := shared.GetMessage(conn, true)
+func (mgr *updateManager) startClientLoop(id string) {
+	for cli := mgr.getClient(id); cli != nil; {
+		msg, err := shared.GetMessage(cli.conn, true)
 		if err != nil {
-			log.Print(errors.New(fmt.Sprintf("Client disconnected: (failed getting message for player %s)", id), err))
-			s.playersLock.Lock()
-			delete(s.players, id)
-			s.playersLock.Unlock()
-			s.queueFunc(func() error {
-				return s.broadcastPlayerDisconnected(id)
-			})
-			continue
+			log.Print(errors.New(fmt.Sprintf("Client disconnected: (failed getting message for player %s)", cli.player.ID), err))
+			if err := mgr.playerDisconnected(id); err != nil {
+				log.Printf("Failed to process player disconnected %s: %v", id, err)
+				return
+			}
 		}
 		log.Printf("%s %q", msg, id)
 		if msg.Request != nil {
-			player.QueueLock.Lock()
-			player.RequestQueue = append(player.RequestQueue, msg)
-			player.QueueLock.Unlock()
+			cli.requests <- msg.Request
+		} else {
+			log.Printf("invalid message from client: %#v", msg)
 		}
 	}
 }
@@ -213,65 +193,39 @@ func (s *mmoServer) gameLoop(errc chan error) {
 }
 
 func (s *mmoServer) tick() error {
-	for id, player := range s.players {
-		player.QueueLock.Lock()
-		for _, msg := range player.RequestQueue {
-			if msg.Request != nil {
-				switch {
-				case msg.Request.MoveRequest != nil:
-					s.handleMoveRequest(id, msg.Request.MoveRequest)
-				case msg.Request.SpeakRequest != nil:
-					s.handleSpeakRequest(id, msg.Request.SpeakRequest)
+	//copy clients to an array so we dont have to RLock the whole function
+	clients := []*client{}
+	s.mgr.connectedPlayersLock.RLock()
+	for _, cli := range s.mgr.connectedPlayers {
+		clients = append(clients, cli)
+	}
+	s.mgr.connectedPlayersLock.RUnlock()
+
+	for _, cli := range clients {
+	requestLoop:
+		for {
+			select {
+			case req := <-cli.requests:
+				if err := s.handleRequest(cli.player, req); err != nil {
+					log.Printf("Error handling player request %#v: %v", req, err)
 				}
+			default:
+				break requestLoop
 			}
 		}
-		player.RequestQueue = []*shared.Message{}
-		player.QueueLock.Unlock()
 	}
-
-	s.updatesLock.Lock()
-	defer s.updatesLock.Unlock()
-	processed := 0
-	for _, update := range s.updates {
-		if err := update(); err != nil {
-			return errors.New("processing update", err)
-		}
-		processed++
-	}
-	s.updates = s.updates[processed:]
 	return nil
 }
 
-func (s *mmoServer) handleMoveRequest(id string, req *shared.MoveRequest) error {
-	s.playersLock.RLock()
-	defer s.playersLock.RUnlock()
-	player := s.players[id]
-	if player == nil {
-		return errors.New("requesting player "+id+" is nil??", nil)
+func (s *mmoServer) handleRequest(player *shared.Player, req *shared.Request) error {
+	switch {
+	case req.MoveRequest != nil:
+		return s.mgr.playerMoved(player, req.MoveRequest)
+	case req.SpeakRequest != nil:
+		return s.mgr.applyAndBroadcast(&shared.PlayerSpoke{
+			ID:   player.ID,
+			Text: req.SpeakRequest.Text,
+		})
 	}
-
-	player.Position = player.Position.Add(req.Direction.Scaled(2))
-	s.queueFunc(func() error {
-		return s.broadcastPlayerMoved(id, player.Position, req.Created)
-	})
-	return nil
-}
-
-func (s *mmoServer) handleSpeakRequest(id string, req *shared.SpeakRequest) error {
-	s.playersLock.RLock()
-	player := s.players[id]
-	s.playersLock.RUnlock()
-	if player == nil {
-		return errors.New("requesting player "+id+" is nil??", nil)
-	}
-	s.queueFunc(func() error {
-		return s.broadcastPlayerSpoke(id, req.Text)
-	})
-	return nil
-}
-
-func (s *mmoServer) queueFunc(fn func() error) {
-	s.updatesLock.Lock()
-	defer s.updatesLock.Unlock()
-	s.updates = append(s.updates, fn)
+	return fmt.Errorf("unknown request type: %#v", req)
 }

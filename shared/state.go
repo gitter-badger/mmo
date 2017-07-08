@@ -7,6 +7,10 @@ import (
 	"github.com/ilackarms/pkg/errors"
 )
 
+const (
+	basePlayerSpeed = 2.0
+)
+
 type World struct {
 	players     map[string]*Player
 	playersLock sync.RWMutex
@@ -63,6 +67,7 @@ func (w *World) addPlayer(added *AddPlayer) error {
 		Position:     added.Position,
 		SpeechBuffer: []SpeechMesage{},
 		Active:       true,
+		Speed:        basePlayerSpeed,
 	})
 	return nil
 }
@@ -72,7 +77,7 @@ func (w *World) applyPlayerMoved(moved *PlayerMoved) error {
 	if err != nil {
 		return err
 	}
-	player.Position = moved.ToPosition
+	player.Position = moved.Direction
 	return nil
 }
 
@@ -93,7 +98,7 @@ func (w *World) applyPlayerSpoke(speech *PlayerSpoke) error {
 }
 
 func (w *World) setWorldState(worldState *WorldState) error {
-	w = worldState
+	w = worldState.World
 	return nil
 }
 

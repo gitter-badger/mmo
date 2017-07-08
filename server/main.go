@@ -16,7 +16,7 @@ const (
 	ticksPerSecond = 10
 	tickTime       = 1.0 / ticksPerSecond
 
-	messagePerTickLimit = 60
+	bufferedMessageLimit = 60
 )
 
 func main() {
