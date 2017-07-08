@@ -1,8 +1,6 @@
 package main
 
 import (
-	"sync"
-
 	"crypto/md5"
 	"fmt"
 	"io"
@@ -21,16 +19,12 @@ import (
 )
 
 type mmoServer struct {
-	playersLock sync.RWMutex
-	players     map[string]*shared.ServerPlayer
-	updatesLock sync.Mutex
-	updates     []func() error
+	state *serverState
 }
 
 func newMMOServer() *mmoServer {
 	return &mmoServer{
-		players: make(map[string]*shared.ServerPlayer),
-		updates: []func() error{},
+		state: newEmptyServerState(),
 	}
 }
 
@@ -146,39 +140,23 @@ func (s *mmoServer) handleConnection(conn net.Conn) error {
 	// get ID
 	id := msg.Request.ConnectRequest.ID
 
-	// check if in use
-	if _, taken := s.players[id]; taken {
-		err := fmt.Errorf("Player ID %q in use", id)
-		if err := s.sendError(conn, shared.FatalErr(err)); err != nil {
-			return shared.FatalErr(err)
+	// add player
+	if err := s.state.playerConnected(id, conn); err != nil {
+		log.Printf("WARN: multiple login attempted from %s at %s\n", id, conn.RemoteAddr())
+		return s.sendError(conn, shared.FatalErr(err))
+	}
+
+	// broadcast to clients that a new player has joined
+	s.queueFunc(func() error {
+		player, ok := s.state.world.CopyPlayer(id)
+		if !ok{
+			return errors.New("player "+id+" no longer found", err)
 		}
-		return err
-	}
-
-	// echo back connect message
-	err = shared.SendMessage(msg, conn)
-	if err != nil {
-		return err
-	}
-
-	pos := pixel.ZV
-	s.playersLock.Lock()
-	defer s.playersLock.Unlock()
-	s.players[id] = &shared.ServerPlayer{
-		Player: &shared.Player{
-			ID:       id,
-			Position: pos,
-		},
-		Conn: conn,
-	}
-
-	// move to (0,0)
-	s.queueUpdate(func() error {
-		return s.broadcastPlayerMoved(id, pos, time.Now())
+		return s.broadcastAddPlayer(id, player.Position)
 	})
 
 	// send world state to player
-	s.queueUpdate(func() error {
+	s.queueFunc(func() error {
 		return s.sendWorldState(id)
 	})
 
@@ -202,7 +180,7 @@ func (s *mmoServer) handlePlayer(id string) {
 			s.playersLock.Lock()
 			delete(s.players, id)
 			s.playersLock.Unlock()
-			s.queueUpdate(func() error {
+			s.queueFunc(func() error {
 				return s.broadcastPlayerDisconnected(id)
 			})
 			continue
@@ -264,11 +242,20 @@ func (s *mmoServer) tick() error {
 	return nil
 }
 
+func (s *mmoServer) broadcastAddPlayer(id string, pos pixel.Vec) error {
+	playerMoved := &shared.Message{
+		Update: &shared.Update{AddPlayer: &shared.AddPlayer{
+			ID:       id,
+			Position: pos,
+		}},
+	}
+	return s.broadcast(playerMoved)
+}
 func (s *mmoServer) broadcastPlayerMoved(id string, newPos pixel.Vec, requestTime time.Time) error {
 	playerMoved := &shared.Message{
 		Update: &shared.Update{PlayerMoved: &shared.PlayerMoved{
 			ID:          id,
-			NewPosition: newPos,
+			ToPosition:  newPos,
 			RequestTime: requestTime,
 		}},
 	}
@@ -315,7 +302,7 @@ func (s *mmoServer) sendError(conn net.Conn, err error) error {
 
 func (s *mmoServer) broadcastPlayerDisconnected(id string) error {
 	playerDisconnected := &shared.Message{
-		Update: &shared.Update{PlayerDisconnected: &shared.PlayerDisconnected{ID: id}},
+		Update: &shared.Update{RemovePlayer: &shared.RemovePlayer{ID: id}},
 	}
 	return s.broadcast(playerDisconnected)
 }
@@ -347,7 +334,7 @@ func (s *mmoServer) handleMoveRequest(id string, req *shared.MoveRequest) error 
 	}
 
 	player.Position = player.Position.Add(req.Direction.Scaled(2))
-	s.queueUpdate(func() error {
+	s.queueFunc(func() error {
 		return s.broadcastPlayerMoved(id, player.Position, req.Created)
 	})
 	return nil
@@ -360,14 +347,14 @@ func (s *mmoServer) handleSpeakRequest(id string, req *shared.SpeakRequest) erro
 	if player == nil {
 		return errors.New("requesting player "+id+" is nil??", nil)
 	}
-	s.queueUpdate(func() error {
+	s.queueFunc(func() error {
 		return s.broadcastPlayerSpoke(id, req.Text)
 	})
 	return nil
 }
 
-func (s *mmoServer) queueUpdate(update func() error) {
+func (s *mmoServer) queueFunc(fn func() error) {
 	s.updatesLock.Lock()
 	defer s.updatesLock.Unlock()
-	s.updates = append(s.updates, update)
+	s.updates = append(s.updates, fn)
 }

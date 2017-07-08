@@ -7,26 +7,33 @@ import (
 	"strings"
 	"sync"
 
+	"time"
+
 	"github.com/faiface/pixel"
 )
 
 const fatalErrSig = "**FATAL_ERR**"
 
-type ServerPlayer struct {
-	*Player
-	Conn         net.Conn
-	RequestQueue []*Message
-	QueueLock    sync.RWMutex
-}
-
 type ClientPlayer struct {
-	*Player
+	Player *Player
 	Color color.Color
 }
 
 type Player struct {
-	ID       string
-	Position pixel.Vec
+	// global unique UUID
+	ID           string
+	// cartesian coordinates
+	Position     pixel.Vec
+	// player speech; max buffer size 4
+	SpeechBuffer []SpeechMesage
+	// if set to false, player is treaded as though it has been deleted
+	// this allows us to activate/deactivate players without deleting from state
+	Active bool
+}
+
+type SpeechMesage struct {
+	Txt       string
+	Timestamp time.Time
 }
 
 type fatalError struct {

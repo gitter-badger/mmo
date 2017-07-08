@@ -15,10 +15,11 @@ type Message struct {
 }
 
 type Update struct {
-	PlayerMoved        *PlayerMoved        `,omitempty`
-	PlayerSpoke        *PlayerSpoke        `,omitempty`
-	WorldState         *WorldState         `,omitempty`
-	PlayerDisconnected *PlayerDisconnected `,omitempty`
+	AddPlayer    *AddPlayer          `,omitempty`
+	PlayerMoved  *PlayerMoved        `,omitempty`
+	PlayerSpoke  *PlayerSpoke        `,omitempty`
+	WorldState   *WorldState         `,omitempty`
+	RemovePlayer *RemovePlayer `,omitempty`
 }
 
 type Request struct {
@@ -44,9 +45,14 @@ type SpeakRequest struct {
 	Text string
 }
 
+type AddPlayer struct {
+	ID       string
+	Position pixel.Vec
+}
+
 type PlayerMoved struct {
 	ID          string
-	NewPosition pixel.Vec
+	ToPosition  pixel.Vec
 	RequestTime time.Time
 }
 
@@ -59,7 +65,7 @@ type WorldState struct {
 	Players []*Player
 }
 
-type PlayerDisconnected struct {
+type RemovePlayer struct {
 	ID string
 }
 
@@ -84,7 +90,7 @@ func (m Message) String() string {
 
 func (u Update) String() string {
 	if u.PlayerMoved != nil {
-		return fmt.Sprintf("PlayerMoved: %s: %s", u.PlayerMoved.ID, u.PlayerMoved.NewPosition)
+		return fmt.Sprintf("PlayerMoved: %s: %s", u.PlayerMoved.ID, u.PlayerMoved.ToPosition)
 	}
 
 	if u.PlayerSpoke != nil {
@@ -95,8 +101,8 @@ func (u Update) String() string {
 
 		return fmt.Sprintf("WorldState: %v players", len(u.WorldState.Players))
 	}
-	if u.PlayerDisconnected != nil {
-		return fmt.Sprintf("PlayerDisconnected: %s", u.PlayerDisconnected)
+	if u.RemovePlayer != nil {
+		return fmt.Sprintf("PlayerDisconnected: %s", u.RemovePlayer)
 	}
 
 	return "empty update"
