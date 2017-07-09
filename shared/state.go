@@ -12,6 +12,10 @@ const (
 	basePlayerSpeed = 2.0
 )
 
+var (
+	defaultSize = pixel.V(1, 1)
+)
+
 type World struct {
 	players     map[string]*Player
 	playersLock sync.RWMutex
@@ -52,12 +56,14 @@ func (w *World) Step(dt float64) (err error) {
 			newPos := player.Position.Add(player.Direction.Scaled(player.Speed * dt))
 			//check collisions
 			var collisionFound bool
+			hitbox := RectFromCenter(newPos, player.Size.X, player.Size.Y)
 			for otherID, otherPlayer := range w.players {
 				// player cant collide with self
 				if id == otherID {
 					continue
 				}
-				if newPos == otherPlayer.Position {
+				otherHitbox := RectFromCenter(otherPlayer.Position, otherPlayer.Size.X, otherPlayer.Size.Y)
+				if hitbox.Intersect(otherHitbox).Area() > 0 {
 					collisionFound = true
 					break
 				}
@@ -95,9 +101,11 @@ func (w *World) addPlayer(added *AddPlayer) error {
 	w.setPlayer(added.ID, &Player{
 		ID:           added.ID,
 		Position:     added.Position,
+		Direction:    pixel.ZV,
+		Speed:        basePlayerSpeed,
+		Size:         defaultSize,
 		SpeechBuffer: []SpeechMesage{},
 		Active:       true,
-		Speed:        basePlayerSpeed,
 	})
 	return nil
 }

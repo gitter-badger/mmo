@@ -7,12 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/faiface/pixel"
 	"github.com/ilackarms/pkg/errors"
 	"github.com/mmogo/mmo/shared"
 )
-
-var defaultStartingPosition = pixel.ZV
 
 // update manager handles all updates
 // update manager makes sure that updates are duplicated properly
@@ -115,8 +112,9 @@ func (mgr *updateManager) playerConnected(id string, conn net.Conn) error {
 	}
 
 	if err := mgr.applyAndBroadcast(&shared.AddPlayer{
-		ID:       id,
-		Position: defaultStartingPosition,
+		ID: id,
+		// todo: dont pick random starting positions. rework how collisions work
+		Position: shared.RandVec(-20, 20),
 	}); err != nil {
 		return errors.New("failed to apply and broadcast adding of player", err)
 	}

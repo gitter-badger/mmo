@@ -27,6 +27,8 @@ type Player struct {
 	// speed is the magnitude of player's velocity
 	// in any direction of movement
 	Speed float64
+	// size in 2 dimensions (x=w, y=h)
+	Size pixel.Vec
 	// player speech; max buffer size 4
 	SpeechBuffer []SpeechMesage
 	// if set to false, player is treaded as though it has been deleted
