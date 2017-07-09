@@ -88,7 +88,7 @@ func (g *GameWorld) ApplyUpdate(update *shared.Update) {
 }
 
 func (g *GameWorld) handlePlayerMoved(moved *shared.PlayerMoved) {
-	g.setPlayerPosition(moved.ID, moved.ToPosition)
+	g.setPlayerPosition(moved.ID, moved.Direction)
 	g.reapplySimulations(moved.RequestTime)
 }
 

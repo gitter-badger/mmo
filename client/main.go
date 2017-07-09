@@ -14,11 +14,11 @@ import (
 	"github.com/faiface/pixel"
 	"github.com/faiface/pixel/pixelgl"
 	"github.com/faiface/pixel/text"
+	"github.com/ilackarms/pkg/errors"
 	"github.com/mmogo/mmo/shared"
 	"github.com/xtaci/smux"
 	"golang.org/x/image/colornames"
 	"golang.org/x/image/font/basicfont"
-	"github.com/ilackarms/pkg/errors"
 )
 
 const (
